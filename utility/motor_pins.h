@@ -9,8 +9,8 @@
 #define MOT1_ENCOD1	2  // INTERRUPT!
 #define MOT1_ENCOD2	3  // INTERRUPT!
 
-#define MOT2_IN1	26
-#define MOT2_IN2        27
+//#define MOT2_IN1	26
+//#define MOT2_IN2        27
 //#define MOT2_EN        	3  // PWM!
 //#define MOT2_ENCOD1	28  // INTERRUPT!
 //#define MOT2_ENCOD2	29  // INTERRUPT!
