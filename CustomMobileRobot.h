@@ -1,6 +1,6 @@
  /*
-  * DynamixelProPlusOvidiusShield.cpp  - Library for controlling Dynamixels Pro+ of a Metamorphic Manipulator using DunamixelShield-Dynamixel2Arduino ROBOTIS libraries
-  * Created by N.A. Stravopodis, December, 2020.
+  * CustomMobileRobot.cpp  - Library for controlling DC+Encoder Wheel System for Mobile Robot
+  * Created by N.A. Stravopodis, February, 2021.
   */
 
 #ifndef CustomMobileRobot_h
@@ -9,15 +9,19 @@
 #include "Arduino.h"
 #include <L298N.h>
 #include <Encoder.h>
-using namespace std;
+#include <utility/motor_pins.h>
 
 typedef unsigned char PWM_type;
 typedef unsigned char debug_error_type;
-enum motion_states {success, failed};
+
 extern volatile bool KILL_MOTION_TRIGGERED;
 
+namespace MobileWheel
+{
+    typedef enum wheel_motion_states {success, failed, ready, is_moving, stopped};
+    typedef enum wheel_rot_dir {CCW, CW};
+
 class MecanumEncoderWheel: public L298N, public Encoder
-//class MecanumEncoderWheel: public Encoder
 {
     private:
         uint8_t _MotorID;
@@ -36,17 +40,16 @@ class MecanumEncoderWheel: public L298N, public Encoder
 
         bool KILL_MOTION;
         bool fn_return_state;
-        motion_states _MOTION_STATE;
 
-        //using L298N::forward;
+        wheel_motion_states _MOTION_STATE;
 
-        //bool rotateWheel(L298N * ptr2clacc, debug_error_type * debug_error);
-        bool rotateWheel(debug_error_type * debug_error);
+        //bool rotateWheel(L298N * ptr2l298n, debug_error_type * debug_error);
+        void rotateWheel(debug_error_type * debug_error);
 
         void calculatePulses2Move(short revs_d, long * pulses2move);
 
-        motion_states MecanumEncoderWheel::getMotionState();
-
+        wheel_motion_states getMotionState();
+/*
         void setPwmSpeedWheel(unsigned short speed);
 
         void forwardWheel();
@@ -54,13 +57,21 @@ class MecanumEncoderWheel: public L298N, public Encoder
         void backwardWheel();
 
         void stopWheel();
-
+*/
     public:
-        MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2, uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2);
+        //L298N WheelMotor;
+        //L298N WheelMotor(Motor_EN,Motor_IN1,Motor_IN2);
+        //Encoder WheelEncoder;
+        //Encoder WheelEncoder(Encoder_Pin1,Encoder_Pin2);
 
-        bool runFor_FixedRevsSpeed(short revs_d, unsigned short speed_d, uint8_t DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error );        
+        MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2,  uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2);
+
+        //bool runFor_FixedRevsSpeed(L298N * ptr2l298n, Encoder * ptr2encoder, short revs_d, unsigned short speed_d, uint8_t DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error );        
+        bool runFor_FixedRevsSpeed(short revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error );        
+
 };
 
+}
 /*
 class CustomMobileRobot: public MecanumEncoderWheel
 {
