@@ -9,6 +9,7 @@
 #include "Arduino.h"
 #include <L298N.h>
 #include <Encoder.h>
+#include <PID_v2.h>
 #include <utility/motor_pins.h>
 
 typedef unsigned char PWM_type;
@@ -21,7 +22,7 @@ namespace MobileWheel
     typedef enum wheel_motion_states {success, failed, ready, is_moving, stopped};
     typedef enum wheel_rot_dir {CCW, CW};
 
-class MecanumEncoderWheel: public L298N, public Encoder
+class MecanumEncoderWheel: public L298N, public Encoder, public PID_v2
 {
     private:
         uint8_t _MotorID;
@@ -32,9 +33,14 @@ class MecanumEncoderWheel: public L298N, public Encoder
         int _Encoder_Pin2;
         uint8_t _DIR;
         unsigned short _PWM_SPEED;
+        double _Kp;
+        double _Kd;
+        double _Ki;
+        double _output_speed_pid;
 
         int32_t encoder_write_value;
         long encoder_current_pulse;
+        long encoder_current_pulse_abs;
         long pulses_total;
         long pulses_remain;
 
@@ -43,32 +49,20 @@ class MecanumEncoderWheel: public L298N, public Encoder
 
         wheel_motion_states _MOTION_STATE;
 
-        //bool rotateWheel(L298N * ptr2l298n, debug_error_type * debug_error);
         void rotateWheel(debug_error_type * debug_error);
 
         void calculatePulses2Move(short revs_d, long * pulses2move);
 
         wheel_motion_states getMotionState();
-/*
-        void setPwmSpeedWheel(unsigned short speed);
 
-        void forwardWheel();
-
-        void backwardWheel();
-
-        void stopWheel();
-*/
     public:
-        //L298N WheelMotor;
-        //L298N WheelMotor(Motor_EN,Motor_IN1,Motor_IN2);
-        //Encoder WheelEncoder;
-        //Encoder WheelEncoder(Encoder_Pin1,Encoder_Pin2);
+        //MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2,  uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2);
+    
+        MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2,  uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2, double Kp, double Ki, double Kd, PID::Direction CONT_DIR);
 
-        MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2,  uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2);
+        bool runFor_FixedRevsSpeed(short revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error ); 
 
-        //bool runFor_FixedRevsSpeed(L298N * ptr2l298n, Encoder * ptr2encoder, short revs_d, unsigned short speed_d, uint8_t DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error );        
-        bool runFor_FixedRevsSpeed(short revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error );        
-
+        bool runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error);
 };
 
 }
@@ -81,7 +75,5 @@ public:
 };
 
 */
-
-
 
  #endif
