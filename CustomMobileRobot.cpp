@@ -30,9 +30,15 @@ MecanumEncoderWheel::MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint
     _Kp            = Kp;
     _Kd            = Kd;
     _Ki            = Kd;
+
+    _MOTION_STATE  = ready;
+
+    _updateInterval = UPDATE_INTERVAL; // milliseconds
+    _lastUpdate     = 0;
+
 }
 // =========================================================================================================== //
-bool MecanumEncoderWheel::runFor_FixedRevsSpeed(short revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+bool MecanumEncoderWheel::runFor_FixedRevsSpeed(double revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
 {
     /*
      * Runs motor for specified number of revolutions and desired speed.
@@ -78,6 +84,7 @@ bool MecanumEncoderWheel::runFor_FixedRevsSpeed(short revs_d, unsigned short spe
     do
     {
         encoder_current_pulse = Encoder::read();
+
         Serial.print("CURRENT PULSE="); Serial.println(encoder_current_pulse);
 
         pulses_remain = abs(pulses_total) - abs( encoder_current_pulse);
@@ -138,10 +145,22 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
     else
     {
         KILL_MOTION = false;
+        MOTION_FINISHED = false;
         *debug_error = NO_ERROR;
     }
 
     // Checks if motor state==is_moving->stops the motor
+     if (_MOTION_STATE == is_moving)
+    {
+        KILL_MOTION  = true;
+        *debug_error = MOTOR_IS_MOVING_AT_STARTUP;
+    }
+    else
+    {
+        KILL_MOTION = false;
+        MOTION_FINISHED = false;
+        *debug_error = NO_ERROR;
+    }   
 
     // set encoder to zero
     this->encoder_write_value = ZERO_ENC;
@@ -157,6 +176,8 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
 
     // run motor until total pulses reached
     this->pulses_remain = 0;
+
+    // set desired rotation direction
     _DIR = DIR;
 
     // start pid
@@ -167,6 +188,9 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
     _output_speed_pid = PID_v2::Run(input_pid);
     // motor started rotating
     Serial.print("PID initial speed="); Serial.println(_output_speed_pid);
+
+    Serial.println("START");
+
     L298N::setSpeed(_output_speed_pid);
     MecanumEncoderWheel::rotateWheel(debug_error);
     delay(100);
@@ -174,6 +198,455 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
     do
     {
         encoder_current_pulse = Encoder::read();
+        encoder_current_pulse_abs = abs(encoder_current_pulse);
+
+        Serial.print("CURRENT PULSE="); Serial.println(encoder_current_pulse);
+
+        pulses_remain = abs(pulses_total) - abs( encoder_current_pulse);        // this is the error signal:controller input
+        
+        Serial.print("PULSES REMAIN="); Serial.println(pulses_remain);
+        
+        //PID_v2::Start((double) encoder_current_pulse, _output_speed_pid, (double) pulses_total);
+
+        input_pid         = encoder_current_pulse_abs;
+        _output_speed_pid = PID_v2::Run(input_pid);
+        
+        Serial.print("PID new speed="); Serial.println(_output_speed_pid);
+
+        L298N::setSpeed(_output_speed_pid);
+
+        MecanumEncoderWheel::rotateWheel(debug_error);
+
+        delay(5);           // THIS DELAY IS VERY IMPORTANT IN ORDER ENCODER TO ACTUALLY CAN READ PULSES
+
+        if (*KILL_MOTION_TRIGGERED)
+        {
+            // bad thing happened
+            KILL_MOTION = true;
+            L298N::stop();
+        }
+
+        if (pulses_remain <= 0)
+        {
+            // finished
+            MOTION_FINISHED = true;
+            L298N::stop();
+        }
+        
+    } while ( (!KILL_MOTION ) && (!MOTION_FINISHED)  );
+
+    if ( (!KILL_MOTION) && MOTION_FINISHED)
+    {
+        *debug_error = NO_ERROR;
+
+        _MOTION_STATE = success;
+
+        return true;
+    }
+    else
+    {
+        *debug_error = MOTION_FAILED;
+
+        _MOTION_STATE = failed;
+
+        return false;
+    }
+}
+
+// =========================================================================================================== //
+/*
+ *                             S T A T E -- M A C H I N E  -- F U N C T I O N S
+ */
+// =========================================================================================================== //
+void MecanumEncoderWheel::initialize_FixedRevsPID(double revs_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    /*
+     *  This function initializes wheel for sync run fixed revs pid.
+     */
+
+    double input_pid, output_pid, setpoint_pid;
+
+    // Checks if kill switch is HIGH->ABORTS
+    if (*KILL_MOTION_TRIGGERED)
+    {
+        KILL_MOTION = true;
+        MOTION_FINISHED = true;
+        *debug_error = KILL_TRIGGER_PRESSED;
+    }
+    else if (_MOTION_STATE == is_moving)
+    {
+        KILL_MOTION  = true;
+        MOTION_FINISHED = true;
+        *debug_error = MOTOR_IS_MOVING_AT_STARTUP;    
+    }
+    else
+    {
+        KILL_MOTION = false;
+        MOTION_FINISHED = false;
+        *debug_error = NO_ERROR;    
+    }
+
+    if ( !KILL_MOTION  && (!MOTION_FINISHED))
+    {
+        // set encoder to zero
+        this->encoder_write_value = ZERO_ENC;
+
+        Encoder::write(encoder_write_value);
+
+        //set pulse counter to zero
+        this->encoder_current_pulse = 0;
+
+        // calculate pulses for desired revs
+        this->pulses_total = 0;
+        calculatePulses2Move(revs_d, &pulses_total);
+
+        // run motor until total pulses reached
+        this->pulses_remain = 0;
+
+        // set desired rotation direction
+        _DIR = DIR;
+
+        // start pid
+        input_pid    = encoder_current_pulse;
+        setpoint_pid = pulses_total;
+
+        PID_v2::Start(input_pid, 75.00, setpoint_pid);    // long->double?
+        _output_speed_pid = PID_v2::Run(input_pid);
+
+        // set new state
+        this->_MOTION_STATE = ready;
+    }
+    else
+    {
+        // set new state
+        this->_MOTION_STATE = failed;
+    }
+    
+}
+// =========================================================================================================== //
+
+void MecanumEncoderWheel::start_FixedRevsPID( debug_error_type * debug_error)
+{
+    if ( _MOTION_STATE == ready)
+    {
+        // Start motion!
+        L298N::setSpeed(this->_output_speed_pid);
+        MecanumEncoderWheel::rotateWheel(debug_error);
+        *debug_error = NO_ERROR;
+
+        this->_MOTION_STATE = is_moving;
+    }
+    else
+    {
+        *debug_error = STATE_WHEEL_NOT_READY;
+
+        this->_MOTION_STATE = failed;
+    }
+    
+}
+// =========================================================================================================== //
+
+void MecanumEncoderWheel::update_FixedRevsPID( volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error)
+{
+    // check if state is right
+    if ( this->_MOTION_STATE == is_moving)
+    { 
+        *current_wheel_state = is_moving;
+
+        Serial.println("_MOTION_STATE == is_moving");
+
+        // check if it is time to update
+        if( (millis() - _lastUpdate) > _updateInterval )
+        {
+            this->encoder_current_pulse = Encoder::read();
+            //encoder_current_pulse_abs = abs(encoder_current_pulse);
+
+            Serial.print("CURRENT PULSE ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->encoder_current_pulse);
+
+            this->pulses_remain = abs(this->pulses_total) - abs( this->encoder_current_pulse);        // this is the error signal:controller input
+            
+            Serial.print("PULSES REMAIN ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->pulses_remain);
+            
+            //input_pid         = encoder_current_pulse_abs;
+            this->_output_speed_pid = PID_v2::Run(abs(this->encoder_current_pulse));
+            
+            Serial.print("PID new speed ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->_output_speed_pid);
+
+            L298N::setSpeed(this->_output_speed_pid);
+
+            MecanumEncoderWheel::rotateWheel(debug_error);
+
+            if (*KILL_MOTION_TRIGGERED)
+            {
+                Serial.println("Mphka KILL_MOTION_TRIGGERED");
+                // bad thing happened
+                this->KILL_MOTION = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error = KILL_TRIGGER_PRESSED;
+                
+                * current_wheel_state = failed;
+            }
+
+            if (this->pulses_remain <= 0)
+            {
+                Serial.println("Mphka FINISHED");
+                // finished!
+                this->MOTION_FINISHED = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error =  NO_ERROR;
+                
+                * current_wheel_state = success;
+            }
+
+            this->_lastUpdate = millis();
+        }
+    }
+    else
+    {
+        Serial.println("_MOTION_STATE == is not moving");
+
+        *debug_error = STATE_WHEEL_NOT_MOVING;
+
+        this->_MOTION_STATE = failed;   
+
+        * current_wheel_state = failed; 
+    }
+    
+}
+// =========================================================================================================== //
+/*
+ *                              P R I V A T E -- C L A S S -- F U N C T I O N S
+ */
+// =========================================================================================================== //
+
+void MecanumEncoderWheel::rotateWheel(debug_error_type * debug_error)
+{
+
+    if (_DIR == cw)
+    {
+        L298N::forward();
+        _MOTION_STATE = is_moving;
+    }
+    else if (_DIR == ccw)
+    {
+        L298N::backward();
+        _MOTION_STATE = is_moving;
+    }
+    else
+    {
+        *debug_error = ERROR_IN_rotateWheel;
+        _MOTION_STATE = failed;
+    }
+}
+
+// =========================================================================================================== //
+void MecanumEncoderWheel::calculatePulses2Move(double revs_d, long * pulses2move)
+{
+    *pulses2move = (long) PULS4REV * revs_d; 
+}
+
+// =========================================================================================================== //
+wheel_motion_states MecanumEncoderWheel::getMotionState()
+{
+    return _MOTION_STATE;
+}
+// =========================================================================================================== //
+void MecanumEncoderWheel::setMotionState(wheel_motion_states new_wheel_state)
+{
+    this->_MOTION_STATE = new_wheel_state;
+}
+
+// =========================================================================================================== //
+// NEW CLASS FOR ROBOT SYSTEM -> IMPLEMENTS STATE MACHINE FOR SYNC MOTION - S I M P L E
+// =========================================================================================================== //
+
+using namespace MecanumMobileRobot;
+
+CustomMobileRobot::CustomMobileRobot(){};
+
+
+// =========================================================================================================== //
+// NEW CLASS FOR ROBOT SYSTEM -> IMPLEMENTS STATE MACHINE FOR SYNC MOTION
+// =========================================================================================================== //
+/*
+using namespace MecanumMobileRobot;
+
+CustomMobileRobot::CustomMobileRobot(L298N *ptr2motor)
+{
+    ptr2l298n_object = ptr2motor;
+}
+*/
+/*
+bool CustomMobileRobot:: moveFwd_FixedRevsPID( MobileWheel::MecanumEncoderWheel * ptr2wheel_object, double revs_d, MobileWheel::wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    //FWD => MOTORS 1,2,3,4 -> FWD
+    bool moved_all_motors = true;
+
+    _robot_state = IS_MOVING;
+
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        fn_return_state = (*(ptr2wheel_object + i)).runFor_FixedRevsPID(revs_d, DIR, KILL_MOTION_TRIGGERED, debug_error);
+        if ( !fn_return_state )
+        {
+            moved_all_motors = false; break;    
+        }
+    }  
+    
+    if ( moved_all_motors )
+    {
+        _robot_state = SUCCESS;
+        return true;
+    }
+    else
+    {
+        _robot_state = FAILED;
+        return false;
+    }
+    
+}
+*/
+// =========================================================================================================== //
+/*
+bool CustomMobileRobot::syncRunFor_FixedRevsPID(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, robot_wheel_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    /*
+     * Runs EACH motor+encoder_controller for specified 
+     * number of revolutions and desired speed! STATE_MACHINE
+     * is implemented.
+     * Implements PID. Need to tune the PID parameters!
+     */
+/*
+    // Checks if [ kill switch is HIGH|| motor state==is_moving ] ->ABORTS 
+    if ( (*KILL_MOTION_TRIGGERED) || (_ROBOT_STATE== IS_MOVING) )
+    {
+        KILL_MOTION = true;
+        *debug_error = KILL_TRIGGER_PRESSED;
+    }
+    else
+    {
+        KILL_MOTION = false;
+        *debug_error = NO_ERROR;
+    }
+
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        // this is initialize sync function
+        CustomMobileRobot::initializeWheelPosition((ptr2motor+i), (ptr2encoder+i), (ptr2controller+i), revs_d, i);
+    }
+    
+    do
+    {
+        // Here update functions are called
+
+        
+    } while ( !KILL_MOTION );
+
+
+    if (!KILL_MOTION)
+    {
+        *debug_error = NO_ERROR;
+
+        _ROBOT_STATE = SUCCESS;
+    }
+    else
+    {
+        *debug_error = MOTION_FAILED;
+
+        _ROBOT_STATE = FAILED;
+    }
+
+    if (*debug_error == NO_ERROR)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+*/
+// =========================================================================================================== //
+// CustomMobileRobot: PRIVATE FUNCTIONS
+// =========================================================================================================== //
+/*
+// =========================================================================================================== //
+void CustomMobileRobot::calculatePulses2Move2(double * revs_d, long * pulses2move)
+{
+    *pulses2move = (long) PULS4REV * (*revs_d); 
+}
+
+void CustomMobileRobot::syncRotateWheel(L298N * ptr2motor, debug_error_type * debug_error, int i)
+{
+    ptr2motor = ptr2l298n_object;
+
+    if (_DIR[i] == CW)
+    {
+        *ptr2motor->forward();
+        _ROBOT_WHEEL_STATE[i] = is_moving;
+    }
+    else if (_DIR == CCW)
+    {
+        *ptr2motor->backward();
+        _ROBOT_WHEEL_STATE[i] = is_moving;
+    }
+    else
+    {
+        *debug_error = ERROR_IN_syncRotateWheel;
+        _ROBOT_WHEEL_STATE[i] = failed;
+    }
+}
+
+void CustomMobileRobot::initializeWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, int i )
+{
+    // For each wheel system:
+    // set encoder to zero
+    this->encoder_write_value[i] = ZERO_ENC;
+
+    *ptr2encoder->write(encoder_write_value[i]);      // Encoder::write(encoder_write_value);
+    //set pulse counter to zero
+    this->encoder_current_pulse[i] = 0;
+
+    // calculate pulses for desired revs
+    this->pulses_total[i] = 0;
+    CustomMobileRobot::calculatePulses2Move2( revs_d[i], pulses_total[i]);
+
+    // run motor until total pulses reached
+    this->pulses_remain[i] = 0;
+    _DIR[i] = DIR;
+
+    // start pid
+    input_pid[i]    = encoder_current_pulse[i];
+    setpoint_pid[i] = pulses_total[i];
+
+    *ptr2controller->Start(input_pid[i], 75.00, setpoint_pid[i]); // PID_v2::Start(input_pid[i], 75.00, setpoint_pid[i]);    
+    _output_speed_pid = *ptr2controller->Run(input_pid[i]);
+
+    // motor started rotating
+    Serial.print("PID[ "); Serial.print(i); Serial.print(" ]  initial speed="); Serial.println(_output_speed_pid[i]);
+    *ptr2motor->setSpeed(_output_speed_pid[i]);
+    
+    CustomMobileRobot::syncRotateWheel(ptr2motor, debug_error, i); // MecanumEncoderWheel::rotateWheel(debug_error);
+}
+*/
+/*
+void CustomMobileRobot::updateWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, int updateInterval)
+{
+    /*
+     * This function is executed inside do..while loop of the desired
+     * function
+     */
+
+/*
+    if( (millis() - lastUpdate) > updateInterval )
+    {
+        /*
+        encoder_current_pulse = (*ptr2encoder).read();
+
         encoder_current_pulse_abs = abs(encoder_current_pulse);
 
         Serial.print("CURRENT PULSE="); Serial.println(encoder_current_pulse);
@@ -191,8 +664,6 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
 
         MecanumEncoderWheel::rotateWheel(debug_error);
 
-        //delay(100);
-
         if (*KILL_MOTION_TRIGGERED)
         {
             // bad thing happened
@@ -206,66 +677,8 @@ bool MecanumEncoderWheel::runFor_FixedRevsPID(double revs_d, wheel_rot_dir DIR, 
             KILL_MOTION = true;
             L298N::stop();
         }
-        
-    } while ( !KILL_MOTION );
-
-    if (!KILL_MOTION)
-    {
-        *debug_error = NO_ERROR;
-
-        _MOTION_STATE = success;
-    }
-    else
-    {
-        *debug_error = MOTION_FAILED;
-
-        _MOTION_STATE = failed;
-    }
-
-    if (*debug_error == NO_ERROR)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-// =========================================================================================================== //
+        */
 /*
- *                              P R I V A T E -- C L A S S -- F U N C T I O N S
- */
-// =========================================================================================================== //
-
-void MecanumEncoderWheel::rotateWheel(debug_error_type * debug_error)
-{
-
-    if (_DIR == CW)
-    {
-        L298N::forward();
-        _MOTION_STATE = is_moving;
-    }
-    else if (_DIR == CCW)
-    {
-        L298N::backward();
-        _MOTION_STATE = is_moving;
-    }
-    else
-    {
-        *debug_error = ERROR_IN_rotateWheel;
-        _MOTION_STATE = failed;
     }
 }
-
-// =========================================================================================================== //
-void MecanumEncoderWheel::calculatePulses2Move(short revs_d, long * pulses2move)
-{
-    *pulses2move = (long) PULS4REV * revs_d; 
-}
-
-// =========================================================================================================== //
-wheel_motion_states MecanumEncoderWheel::getMotionState()
-{
-    return _MOTION_STATE;
-}
+*/
