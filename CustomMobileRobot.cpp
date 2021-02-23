@@ -436,6 +436,11 @@ void MecanumEncoderWheel::rotateWheel(debug_error_type * debug_error)
         L298N::backward();
         _MOTION_STATE = is_moving;
     }
+    else if (_DIR == stall)
+    {
+        L298N::stop();
+        _MOTION_STATE = is_stall;
+    }
     else
     {
         *debug_error = ERROR_IN_rotateWheel;
@@ -455,9 +460,9 @@ wheel_motion_states MecanumEncoderWheel::getMotionState()
     return _MOTION_STATE;
 }
 // =========================================================================================================== //
-void MecanumEncoderWheel::setMotionState(wheel_motion_states new_wheel_state)
+void MecanumEncoderWheel::setMotionState(wheel_motion_states * new_wheel_state)
 {
-    this->_MOTION_STATE = new_wheel_state;
+    this->_MOTION_STATE = * new_wheel_state;
 }
 
 // =========================================================================================================== //
@@ -467,6 +472,199 @@ void MecanumEncoderWheel::setMotionState(wheel_motion_states new_wheel_state)
 using namespace MecanumMobileRobot;
 
 CustomMobileRobot::CustomMobileRobot(){};
+
+void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_rot_dir * WHEEL_DIRS, debug_error_type * debug_error)
+{
+    // ALL DIRS ARE PRESENTED IN /jpg/robot-4wd-dir.jpg
+    
+    switch (DESIRED_DIR)
+    {
+    case BWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;
+    case FWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;
+    case DIAG_LEFT_FWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;
+    case DIAG_RIGHT_FWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;
+    case DIAG_LEFT_BWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;
+    case DIAG_RIGHT_BWD:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;
+    case LEFT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;
+    case RIGHT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_CENTER_CW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_CENTER_CCW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_FRONT_CW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_FRONT_CCW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_BACK_CW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;
+    case ROT_BACK_CCW:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;      
+    case CORNER_BACK_RIGHT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;  
+    case CORNER_BACK_LEFT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+        *debug_error = NO_ERROR;
+        break;  
+    case CORNER_FRONT_RIGHT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+        *debug_error = NO_ERROR;
+        break;  
+    case CORNER_FRONT_LEFT:
+        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+        *debug_error = NO_ERROR;
+        break;       
+    default:
+        *debug_error = WRONG_DIR_GIVEN;
+        break;
+    }
+}
+
+// =========================================================================================================== //
+
+bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, double * WHEEL_REVS, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    // this drives the robot for specified number of revs and specified wheel directions
+
+    RobotWheel = ptr2RobotWheel;    // this is a pointer to an array of wheel objects
+
+    _TERMINATE_MOTION = false;
+
+    _MOTOR_STILL_MOVING = true;
+
+    // initialize
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->initialize_FixedRevsPID(WHEEL_REVS[i], WHEEL_DIRS[i], KILL_MOTION_TRIGGERED, debug_error);
+    }
+    // start
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->start_FixedRevsPID( debug_error );
+    }
+    // update
+    do
+    {
+        // update the objects state
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            (ptr2RobotWheel+i)->update_FixedRevsPID(KILL_MOTION_TRIGGERED, (WHEEL_STATES+i),debug_error );
+        }
+
+        // inside state machine loop always check the current state of motors
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            if (WHEEL_STATES[i] == MobileWheel::wheel_motion_states::is_moving)
+            {
+                _MOTOR_STILL_MOVING = true;
+            }
+            else
+            {
+                _MOTOR_STILL_MOVING = false;
+            } 
+        }
+            
+        // if not even 1 motor turning terminate the state-machine loop
+        if( (!_MOTOR_STILL_MOVING) ) 
+        {
+            _TERMINATE_MOTION = true;
+        }
+    }while(!_TERMINATE_MOTION);
+
+    return true;
+}
+
 
 
 // =========================================================================================================== //

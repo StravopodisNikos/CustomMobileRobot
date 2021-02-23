@@ -20,8 +20,8 @@ extern volatile bool KILL_MOTION_TRIGGERED;
 
 namespace MobileWheel
 {
-    typedef enum wheel_motion_states {success, failed, ready, is_moving, stopped};
-    typedef enum wheel_rot_dir {ccw, cw};
+    typedef enum wheel_motion_states {success, failed, ready, is_moving, is_stall, stopped};
+    typedef enum wheel_rot_dir {ccw, cw, stall=-1};
 
 class MecanumEncoderWheel: public L298N, public Encoder, public PID_v2
 {
@@ -60,7 +60,7 @@ class MecanumEncoderWheel: public L298N, public Encoder, public PID_v2
 
         wheel_motion_states getMotionState();
 
-        void setMotionState(wheel_motion_states new_wheel_state);
+        void setMotionState(wheel_motion_states * new_wheel_state);
 
     public:    
         MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint8_t Motor_IN1, uint8_t Motor_IN2,  uint8_t Encoder_Pin1,  uint8_t Encoder_Pin2, double Kp, double Ki, double Kd, PID::Direction CONT_DIR);
@@ -75,7 +75,6 @@ class MecanumEncoderWheel: public L298N, public Encoder, public PID_v2
         void start_FixedRevsPID( debug_error_type * debug_error);
 
         void update_FixedRevsPID( volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error);
-
 };
 
 }
@@ -83,83 +82,23 @@ class MecanumEncoderWheel: public L298N, public Encoder, public PID_v2
 namespace MecanumMobileRobot
 {
     typedef enum robot_motion_states {SUCCESS, FAILED, READY, IS_MOVING, STOPPED};
-    typedef enum robot_dir {BWD, FWD, DIAG_LEFT_FWD, DIAG_RIGHT_FWD, DIAG_LEFT_BWD, DIAG_RIGHT_BWD, ROT_CENTER, ROT_FRONT, ROT_BACK};
+    typedef enum robot_dir {BWD, FWD, DIAG_LEFT_FWD, DIAG_RIGHT_FWD, DIAG_LEFT_BWD, DIAG_RIGHT_BWD, LEFT, RIGHT, ROT_CENTER_CW, ROT_CENTER_CCW, ROT_FRONT_CW, ROT_FRONT_CCW, ROT_BACK_CW, ROT_BACK_CCW, CORNER_BACK_RIGHT, CORNER_BACK_LEFT, CORNER_FRONT_RIGHT, CORNER_FRONT_LEFT};
 
     class CustomMobileRobot
     {
         private:
+            bool _TERMINATE_MOTION;
+            bool _MOTOR_STILL_MOVING;
 
         public:
+            MobileWheel::MecanumEncoderWheel * RobotWheel;
 
             CustomMobileRobot();
 
-            MobileWheel::MecanumEncoderWheel *RobotWheel; 
+            void setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_rot_dir * WHEEL_DIRS, debug_error_type * debug_error);
+
+            bool driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, double * WHEEL_REVS, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error);       
     };
 }
 
-
-
-/*
-namespace MecanumMobileRobot
-{
-    typedef enum robot_motion_states {SUCCESS, FAILED, READY, IS_MOVING, STOPPED};
-    typedef enum robot_wheel_states {success, failed, ready, is_moving, stopped};
-
-    typedef enum robot_dir {BWD, FWD, DIAG_LEFT_FWD, DIAG_RIGHT_FWD, DIAG_LEFT_BWD, DIAG_RIGHT_BWD, ROT_CENTER, ROT_FRONT, ROT_BACK};
-    typedef enum robot_wheel_dir{CCW, CW};
-
-//class CustomMobileRobot: public MecanumEncoderWheel
-/*
-class CustomMobileRobot
-{
-    private:
-
-        L298N *ptr2l298n_object;
-
-        robot_motion_states _robot_state;
-        bool fn_return_state;
-
-        double _Kp[num_ROBOT_WHEELS];
-        double _Kd[num_ROBOT_WHEELS];
-        double _Ki[num_ROBOT_WHEELS];
-        double _output_speed_pid[num_ROBOT_WHEELS];
-
-        double input_pid[num_ROBOT_WHEELS];
-        double output_pid[num_ROBOT_WHEELS];
-        double setpoint_pid[num_ROBOT_WHEELS];
-
-        int32_t encoder_write_value[num_ROBOT_WHEELS];
-        long encoder_current_pulse[num_ROBOT_WHEELS];
-        long encoder_current_pulse_abs[num_ROBOT_WHEELS];
-        long pulses_total[num_ROBOT_WHEELS];
-        long pulses_remain[num_ROBOT_WHEELS];
-
-        uint8_t _DIR[num_ROBOT_WHEELS];
-
-        robot_wheel_states _ROBOT_WHEEL_STATE[num_ROBOT_WHEELS];
-        robot_motion_states _ROBOT_STATE;
-
-        unsigned long lastUpdate;
-
-        void calculatePulses2Move2(double * revs_d, long * pulses2move);
-
-        void syncRotateWheel(L298N *ptr2motor, debug_error_type * debug_error, int i);
-
-        void initializeWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, int i);
-
-        void updateWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, int updateInterval);
-
-    public:
-        CustomMobileRobot();
-
-        // this function cannot implement synced 4WD
-        bool moveFwd_FixedRevsPID(MobileWheel::MecanumEncoderWheel * ptr2wheel_object, double revs_d, MobileWheel::wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error);
-
-        // for synced 4WD
-        bool syncRunFor_FixedRevsPID(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, robot_wheel_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error);
-
-};
-
-}
-*/
- #endif
+#endif

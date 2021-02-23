@@ -1,5 +1,5 @@
 // MOBILE ROBOT PROPERTIES
-#define num_ROBOT_WHEELS        4
+#define num_ROBOT_WHEELS        2
 
 // MECANUM WHEEL PROPERTIES
 #define ALPHA_DEG	            45
