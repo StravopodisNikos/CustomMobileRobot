@@ -6,6 +6,7 @@
 // ARDUINO MEGA INT PINS: 2,3,18,19,20,21
 // ARDUINO MEGA PWM PINS: 2-13
 
+// ROBOT MOTORS
 #define MOT1_IN1	    22
 #define MOT1_IN2        23
 #define MOT1_EN        	5   // PWM!
@@ -30,6 +31,19 @@
 #define MOT4_ENCOD1	    19  // INTERRUPT!
 #define MOT4_ENCOD2	    36  // NO INTERRUPT!
 
+// ROBOT SENSORS
+// PROXIMITY
+#define PR0X_LIM_LEFT   A0
+#define PR0X_LIM_RIGHT  A1
+// SUPERSONIC
+#define SONAR_ECHO      53
+#define SONAR_TRIG      52
+// COLOR FOR NEST-EGGS
+#define COLOR1_S0       51
+#define COLOR1_S1       50
+#define COLOR1_S2       49
+#define COLOR1_S3       48
+#define COLOR1_OUT      47
 //#endif
 
 #endif

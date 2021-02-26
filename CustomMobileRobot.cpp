@@ -33,9 +33,14 @@ MecanumEncoderWheel::MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint
 
     _MOTION_STATE  = ready;
 
+
     _updateInterval = UPDATE_INTERVAL; // milliseconds
     _lastUpdate     = 0;
-
+/*
+    _timeStepIMU = 0.1;         // [sec]
+    _updateIMUinterval = 100;   // [milllis]
+    _heading_angle = 0;
+    _lastIMUupdate = 0;*/
 }
 // =========================================================================================================== //
 bool MecanumEncoderWheel::runFor_FixedRevsSpeed(double revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
@@ -325,7 +330,7 @@ void MecanumEncoderWheel::initialize_FixedRevsPID(double revs_d, wheel_rot_dir D
 }
 // =========================================================================================================== //
 
-void MecanumEncoderWheel::start_FixedRevsPID( debug_error_type * debug_error)
+void MecanumEncoderWheel::start_PID( debug_error_type * debug_error)
 {
     if ( _MOTION_STATE == ready)
     {
@@ -338,6 +343,8 @@ void MecanumEncoderWheel::start_FixedRevsPID( debug_error_type * debug_error)
     }
     else
     {
+        Serial.print("PID CANNOT START DUE TO STATE ERROR");
+
         *debug_error = STATE_WHEEL_NOT_READY;
 
         this->_MOTION_STATE = failed;
@@ -417,6 +424,173 @@ void MecanumEncoderWheel::update_FixedRevsPID( volatile bool *KILL_MOTION_TRIGGE
     }
     
 }
+
+// =========================================================================================================== //
+
+//void MecanumEncoderWheel::initialize_HeadingPID(MPU6050 * ptr2mpu, float desired_heading_angle, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+void MecanumEncoderWheel::initialize_HeadingPID(float desired_heading_angle, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    /*
+     *  This function initializes wheel for sync run rotate for fixed angle
+     */
+
+    //mpu_sensor = ptr2mpu;   // pointer to single imu sensor
+    float current_yaw;
+
+    double input_pid, output_pid, setpoint_pid;
+
+    // Checks if kill switch is HIGH->ABORTS
+    if (*KILL_MOTION_TRIGGERED)
+    {
+        KILL_MOTION = true;
+        MOTION_FINISHED = true;
+        *debug_error = KILL_TRIGGER_PRESSED;
+    }
+    else if (_MOTION_STATE == is_moving)
+    {
+        KILL_MOTION  = true;
+        MOTION_FINISHED = true;
+        *debug_error = MOTOR_IS_MOVING_AT_STARTUP;    
+    }
+    else
+    {
+        KILL_MOTION = false;
+        MOTION_FINISHED = false;
+        *debug_error = NO_ERROR;    
+    }
+
+    if ( !KILL_MOTION  && (!MOTION_FINISHED))
+    {
+        // measure current IMU angle
+        //updateHeadingAngle(this->mpu_sensor);
+        current_yaw = 0;
+
+        _desired_heading_angle = desired_heading_angle;
+
+        Serial.print("CURRENT YAW ANGLE = "); Serial.println(current_yaw);
+
+        // set desired rotation direction
+        _DIR = DIR;
+
+        // start pid
+        input_pid    = current_yaw;
+        setpoint_pid = _desired_heading_angle;
+
+        Serial.print("SETPOINT YAW ANGLE = "); Serial.println(setpoint_pid);
+
+        PID_v2::Start(input_pid, 75.00, setpoint_pid);    
+        _output_speed_pid = PID_v2::Run(input_pid);
+
+        // set new state
+        this->_MOTION_STATE = ready;
+    }
+    else
+    {
+        // set new state
+        this->_MOTION_STATE = failed;
+    }
+    
+}
+
+// =========================================================================================================== //
+void MecanumEncoderWheel::access_yaw_angle(MecanumMobileRobot::CustomMobileRobot & robot_obj, float * current_robot_yaw)
+{
+    *current_robot_yaw = robot_obj._heading_angle;
+}
+
+
+// =========================================================================================================== //
+
+//void MecanumEncoderWheel::update_HeadingPID(MPU6050 * ptr2mpu, volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error)
+void MecanumEncoderWheel::update_HeadingPID(MecanumMobileRobot::CustomMobileRobot & robot_obj, float * current_yaw_measured, volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error)
+{
+    float delta_angle,current_yaw,desired_yaw;
+    Vector normGyroMPU;
+    //float timeStepMPU = 0.020;
+
+    //mpu_sensor = ptr2mpu;   // pointer to single imu sensor
+    
+    // check if state is right
+    if ( this->_MOTION_STATE == is_moving)
+    { 
+        *current_wheel_state = is_moving;
+
+        //Serial.println("_MOTION_STATE == is_moving");
+
+        // check if it is time to update
+        if( (millis() - _lastUpdate) > _updateInterval )
+        {
+            // measure current IMU angle -> ALL CRASH!!!
+
+            // 1 will give error
+            //current_yaw = robot_obj.updateHeadingAngle();
+
+            // 2 
+            //current_yaw = robot_obj._heading_angle;
+            //desired_yaw = robot_obj._desired_heading_angle;
+            // 3
+            current_yaw = *current_yaw_measured;
+
+            Serial.print("CURRENT YAW ANGLE ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(current_yaw);
+            //Serial.print("DESIRED YAW ANGLE ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(_desired_heading_angle);
+
+            // calculate delta yaw
+            //delta_angle = abs(_desired_heading_angle) - abs(current_yaw);
+            delta_angle = _desired_heading_angle - current_yaw;
+            Serial.print("delta_angle ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(delta_angle);
+
+            this->_output_speed_pid = PID_v2::Run(current_yaw);
+            
+            Serial.print("PID new speed ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->_output_speed_pid);
+
+            L298N::setSpeed(this->_output_speed_pid);
+
+            MecanumEncoderWheel::rotateWheel(debug_error);
+
+            if (*KILL_MOTION_TRIGGERED)
+            {
+                Serial.println("Mphka KILL_MOTION_TRIGGERED");
+                // bad thing happened
+                this->KILL_MOTION = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error = KILL_TRIGGER_PRESSED;
+                
+                * current_wheel_state = failed;
+            }
+
+            if (delta_angle <= 0)
+            {
+                Serial.println("Mphka FINISHED");
+                // finished!
+                this->MOTION_FINISHED = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error =  NO_ERROR;
+                
+                * current_wheel_state = success;
+            }
+
+            this->_lastUpdate = millis();
+
+            //*last_yaw = current_yaw;
+        }
+    }
+    else
+    {
+        Serial.println("_MOTION_STATE == is not moving");
+
+        *debug_error = STATE_WHEEL_NOT_MOVING;
+
+        this->_MOTION_STATE = failed;   
+
+        * current_wheel_state = failed; 
+    }
+    
+}
+
 // =========================================================================================================== //
 /*
  *                              P R I V A T E -- C L A S S -- F U N C T I O N S
@@ -465,18 +639,30 @@ void MecanumEncoderWheel::setMotionState(wheel_motion_states * new_wheel_state)
     this->_MOTION_STATE = * new_wheel_state;
 }
 
+
 // =========================================================================================================== //
 // NEW CLASS FOR ROBOT SYSTEM -> IMPLEMENTS STATE MACHINE FOR SYNC MOTION - S I M P L E
 // =========================================================================================================== //
 
 using namespace MecanumMobileRobot;
 
-CustomMobileRobot::CustomMobileRobot(){};
+CustomMobileRobot::CustomMobileRobot()
+{
+    _ROBOT_MOTION_STATE  = READY;
+
+    _timeStepIMU = 0.1;
+    _updateIMUinterval = 100;
+    _lastIMUupdate = 0;
+    _heading_angle = 0;
+    _normGyro.XAxis = 0;
+    _normGyro.YAxis = 0;
+    _normGyro.ZAxis = 0;
+};
 
 void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_rot_dir * WHEEL_DIRS, debug_error_type * debug_error)
 {
     // ALL DIRS ARE PRESENTED IN /jpg/robot-4wd-dir.jpg
-    
+
     switch (DESIRED_DIR)
     {
     case BWD:
@@ -537,15 +723,15 @@ void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_ro
         break;
     case ROT_CENTER_CW:
         WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
         //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
         *debug_error = NO_ERROR;
         break;
     case ROT_CENTER_CCW:
         WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
         //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
         *debug_error = NO_ERROR;
         break;
@@ -631,7 +817,7 @@ bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel *
     // start
     for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
     {
-        (ptr2RobotWheel+i)->start_FixedRevsPID( debug_error );
+        (ptr2RobotWheel+i)->start_PID( debug_error );
     }
     // update
     do
@@ -648,6 +834,7 @@ bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel *
             if (WHEEL_STATES[i] == MobileWheel::wheel_motion_states::is_moving)
             {
                 _MOTOR_STILL_MOVING = true;
+                break;
             }
             else
             {
@@ -665,218 +852,126 @@ bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel *
     return true;
 }
 
-
-
 // =========================================================================================================== //
-// NEW CLASS FOR ROBOT SYSTEM -> IMPLEMENTS STATE MACHINE FOR SYNC MOTION
-// =========================================================================================================== //
-/*
-using namespace MecanumMobileRobot;
 
-CustomMobileRobot::CustomMobileRobot(L298N *ptr2motor)
+bool CustomMobileRobot::rotateFor_FixedYawPID(CustomMobileRobot * ptr2RobotObject, MPU6050 * ptr2mpu, MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, float  desired_heading_angle, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
 {
-    ptr2l298n_object = ptr2motor;
-}
-*/
-/*
-bool CustomMobileRobot:: moveFwd_FixedRevsPID( MobileWheel::MecanumEncoderWheel * ptr2wheel_object, double revs_d, MobileWheel::wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
-{
-    //FWD => MOTORS 1,2,3,4 -> FWD
-    bool moved_all_motors = true;
+    // this rotates the robot for the desired yaw angle
 
-    _robot_state = IS_MOVING;
+    float yaw_measured_here;
 
+    ptr2mpu = & mpu_sensor;           // pointer to mpu object
+
+    RobotWheel = ptr2RobotWheel;    // this is a pointer to an array of wheel objects
+
+    //RobotObject = ptr2RobotObject;  // this is ptr to object of robot and is passed to friend class
+    ptr2RobotObject = RobotObject;
+
+    _TERMINATE_MOTION = false;
+
+    //_MOTOR_STILL_MOVING = true;
+    //*
+    // open imu sensor;
+    //initializeMPU(mpu_sensor);
+    //*/
+
+    // initialize
     for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
     {
-        fn_return_state = (*(ptr2wheel_object + i)).runFor_FixedRevsPID(revs_d, DIR, KILL_MOTION_TRIGGERED, debug_error);
-        if ( !fn_return_state )
-        {
-            moved_all_motors = false; break;    
-        }
-    }  
-    
-    if ( moved_all_motors )
-    {
-        _robot_state = SUCCESS;
-        return true;
+        (ptr2RobotWheel+i)->initialize_HeadingPID(desired_heading_angle, WHEEL_DIRS[i], KILL_MOTION_TRIGGERED, debug_error);
     }
-    else
-    {
-        _robot_state = FAILED;
-        return false;
-    }
-    
-}
-*/
-// =========================================================================================================== //
-/*
-bool CustomMobileRobot::syncRunFor_FixedRevsPID(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, robot_wheel_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
-{
-    /*
-     * Runs EACH motor+encoder_controller for specified 
-     * number of revolutions and desired speed! STATE_MACHINE
-     * is implemented.
-     * Implements PID. Need to tune the PID parameters!
-     */
-/*
-    // Checks if [ kill switch is HIGH|| motor state==is_moving ] ->ABORTS 
-    if ( (*KILL_MOTION_TRIGGERED) || (_ROBOT_STATE== IS_MOVING) )
-    {
-        KILL_MOTION = true;
-        *debug_error = KILL_TRIGGER_PRESSED;
-    }
-    else
-    {
-        KILL_MOTION = false;
-        *debug_error = NO_ERROR;
-    }
-
+    // start
     for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
     {
-        // this is initialize sync function
-        CustomMobileRobot::initializeWheelPosition((ptr2motor+i), (ptr2encoder+i), (ptr2controller+i), revs_d, i);
+        (ptr2RobotWheel+i)->start_PID( debug_error );
     }
-    
+    // update
+    //float yaw = 0;
     do
     {
-        // Here update functions are called
-
-        
-    } while ( !KILL_MOTION );
-
-
-    if (!KILL_MOTION)
-    {
-        *debug_error = NO_ERROR;
-
-        _ROBOT_STATE = SUCCESS;
-    }
-    else
-    {
-        *debug_error = MOTION_FAILED;
-
-        _ROBOT_STATE = FAILED;
-    }
-
-    if (*debug_error == NO_ERROR)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-*/
-// =========================================================================================================== //
-// CustomMobileRobot: PRIVATE FUNCTIONS
-// =========================================================================================================== //
-/*
-// =========================================================================================================== //
-void CustomMobileRobot::calculatePulses2Move2(double * revs_d, long * pulses2move)
-{
-    *pulses2move = (long) PULS4REV * (*revs_d); 
-}
-
-void CustomMobileRobot::syncRotateWheel(L298N * ptr2motor, debug_error_type * debug_error, int i)
-{
-    ptr2motor = ptr2l298n_object;
-
-    if (_DIR[i] == CW)
-    {
-        *ptr2motor->forward();
-        _ROBOT_WHEEL_STATE[i] = is_moving;
-    }
-    else if (_DIR == CCW)
-    {
-        *ptr2motor->backward();
-        _ROBOT_WHEEL_STATE[i] = is_moving;
-    }
-    else
-    {
-        *debug_error = ERROR_IN_syncRotateWheel;
-        _ROBOT_WHEEL_STATE[i] = failed;
-    }
-}
-
-void CustomMobileRobot::initializeWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, double * revs_d, int i )
-{
-    // For each wheel system:
-    // set encoder to zero
-    this->encoder_write_value[i] = ZERO_ENC;
-
-    *ptr2encoder->write(encoder_write_value[i]);      // Encoder::write(encoder_write_value);
-    //set pulse counter to zero
-    this->encoder_current_pulse[i] = 0;
-
-    // calculate pulses for desired revs
-    this->pulses_total[i] = 0;
-    CustomMobileRobot::calculatePulses2Move2( revs_d[i], pulses_total[i]);
-
-    // run motor until total pulses reached
-    this->pulses_remain[i] = 0;
-    _DIR[i] = DIR;
-
-    // start pid
-    input_pid[i]    = encoder_current_pulse[i];
-    setpoint_pid[i] = pulses_total[i];
-
-    *ptr2controller->Start(input_pid[i], 75.00, setpoint_pid[i]); // PID_v2::Start(input_pid[i], 75.00, setpoint_pid[i]);    
-    _output_speed_pid = *ptr2controller->Run(input_pid[i]);
-
-    // motor started rotating
-    Serial.print("PID[ "); Serial.print(i); Serial.print(" ]  initial speed="); Serial.println(_output_speed_pid[i]);
-    *ptr2motor->setSpeed(_output_speed_pid[i]);
-    
-    CustomMobileRobot::syncRotateWheel(ptr2motor, debug_error, i); // MecanumEncoderWheel::rotateWheel(debug_error);
-}
-*/
-/*
-void CustomMobileRobot::updateWheelPosition(L298N *ptr2motor, Encoder *ptr2encoder, PID_v2 *ptr2controller, int updateInterval)
-{
-    /*
-     * This function is executed inside do..while loop of the desired
-     * function
-     */
-
-/*
-    if( (millis() - lastUpdate) > updateInterval )
-    {
-        /*
-        encoder_current_pulse = (*ptr2encoder).read();
-
-        encoder_current_pulse_abs = abs(encoder_current_pulse);
-
-        Serial.print("CURRENT PULSE="); Serial.println(encoder_current_pulse);
-
-        pulses_remain = abs(pulses_total) - abs( encoder_current_pulse);        // this is the error signal:controller input
-
-        //PID_v2::Start((double) encoder_current_pulse, _output_speed_pid, (double) pulses_total);
-
-        input_pid         = encoder_current_pulse_abs;
-        _output_speed_pid = PID_v2::Run(input_pid);
-        
-        Serial.print("PID new speed="); Serial.println(_output_speed_pid);
-
-        L298N::setSpeed(_output_speed_pid);
-
-        MecanumEncoderWheel::rotateWheel(debug_error);
-
-        if (*KILL_MOTION_TRIGGERED)
+        // update the objects state
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
         {
-            // bad thing happened
-            KILL_MOTION = true;
-            L298N::stop();
+            //_heading_angle = updateHeadingAngle(ptr2mpu);
+            yaw_measured_here = updateHeadingAngle(ptr2mpu);
+
+            (ptr2RobotWheel+i)->update_HeadingPID(*ptr2RobotObject, &yaw_measured_here, KILL_MOTION_TRIGGERED, (WHEEL_STATES+i),debug_error );
         }
 
-        if (pulses_remain <= 0)
+        // inside state machine loop always check the current state of motors
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
         {
-            // finished
-            KILL_MOTION = true;
-            L298N::stop();
+            if (WHEEL_STATES[i] == MobileWheel::wheel_motion_states::is_moving)
+            {
+                _MOTOR_STILL_MOVING = true;
+                break;
+            }
+            else
+            {
+                _MOTOR_STILL_MOVING = false;
+            } 
         }
-        */
-/*
-    }
+
+        Serial.print("_MOTOR_STILL_MOVING = "); Serial.println(_MOTOR_STILL_MOVING);
+
+        // if not even 1 motor turning terminate the state-machine loop
+        if( (!_MOTOR_STILL_MOVING) ) 
+        {
+            _TERMINATE_MOTION = true;
+        }
+
+    }while(!_TERMINATE_MOTION);
+
+    return true;
 }
-*/
+
+// =========================================================================================================== //
+
+float CustomMobileRobot::updateHeadingAngle(MPU6050 * ptr2mpu)
+{
+    float current_heading_angle,var_time_step;
+
+    ptr2mpu = & mpu_sensor;
+
+    if ( (millis() - _lastIMUupdate) > _updateIMUinterval )
+    {
+        _normGyro  = ptr2mpu->readNormalizeGyro(); 
+
+        var_time_step = (float) ((millis() - _lastIMUupdate) / 1000.0);
+        _heading_angle = _heading_angle + _normGyro.ZAxis * var_time_step;
+
+        current_heading_angle = _heading_angle;
+
+        _lastIMUupdate = millis();
+    }
+    else
+    {
+        current_heading_angle = _heading_angle;
+    }
+
+    return current_heading_angle;
+}
+
+// =========================================================================================================== //
+/*
+ *                              P R I V A T E -- C L A S S -- F U N C T I O N S
+ */
+// =========================================================================================================== //
+
+void CustomMobileRobot::initializeMPU(MPU6050 * ptr2mpu, debug_error_type * debug_error)
+{
+    //mpu_sensor = & ptr2mpu;
+
+    ptr2mpu = & mpu_sensor;
+
+    while(!ptr2mpu->begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G))
+    {
+        *debug_error = MPU_NOT_CONNECTED;
+        delay(100);
+    }
+
+    ptr2mpu->calibrateGyro();
+    ptr2mpu->setThreshold(3);
+
+    *debug_error = NO_ERROR;
+}
