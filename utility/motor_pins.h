@@ -44,6 +44,5 @@
 #define COLOR1_S2       49
 #define COLOR1_S3       48
 #define COLOR1_OUT      47
-//#endif
 
 #endif

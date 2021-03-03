@@ -1,5 +1,8 @@
 // MOBILE ROBOT PROPERTIES
 #define num_ROBOT_WHEELS        2
+#define WHEEEL_SPEED_MAX        200
+#define WHEEEL_SPEED_MIN        55
+#define WHEEEL_SPEED_ROBOT_ROT  100
 
 // MECANUM WHEEL PROPERTIES
 #define ALPHA_DEG	            45
@@ -9,5 +12,12 @@
 #define	ZERO_ENC	            0
 #define PULS4REV	            1320
 
+// SONAR
+#define SONAR_MAX_DISTANCE_CM   100
+#define FIXED_DIST_THRESHOLD_CM 5
+#define SONAR_ITERATIONS        5
+#define SONAR_MIN_PING_INTERVAL 50
+
 // STATE MACHINE PROPERTIES
 #define UPDATE_INTERVAL         20
+#define ROTATION_TIMEOUT        5000    // [millis] 

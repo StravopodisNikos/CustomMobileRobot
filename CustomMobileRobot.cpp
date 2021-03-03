@@ -5,6 +5,11 @@
 #include <utility/config.h>
 #include <utility/debug_code.h>
 #include <CustomMobileRobot.h>
+#include <NewPing.h>
+
+#include <OvidiusSensors.h>
+#include <utility/OvidiusSensors_config.h>
+#include <utility/OvidiusSensors_debug.h>
 
 using namespace MobileWheel;
 // Constructors
@@ -43,6 +48,22 @@ MecanumEncoderWheel::MecanumEncoderWheel(uint8_t MotorID, uint8_t Motor_EN, uint
     _lastIMUupdate = 0;*/
 }
 // =========================================================================================================== //
+void MecanumEncoderWheel::runUntil_ctSpeed( wheel_rot_dir DIR,  debug_error_type * debug_error)
+{
+    // rotates wheels at given directions. does nothing else.
+    // must be called only once, before while loop!
+    // it is called inside CustomMobileRobot::runUntil functions,
+    //  where sensor triggers are used as stopping criteria 
+
+    _DIR = DIR;
+
+    L298N::setSpeed(WHEEEL_SPEED_ROBOT_ROT);
+
+    MecanumEncoderWheel::rotateWheel(debug_error);
+
+}
+// =========================================================================================================== //
+
 bool MecanumEncoderWheel::runFor_FixedRevsSpeed(double revs_d, unsigned short speed_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
 {
     /*
@@ -330,6 +351,79 @@ void MecanumEncoderWheel::initialize_FixedRevsPID(double revs_d, wheel_rot_dir D
 }
 // =========================================================================================================== //
 
+void MecanumEncoderWheel::initialize_FixedDistPID(NewPing * ptr2ping,  unsigned long dist_d, wheel_rot_dir DIR, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    /*
+     *  This function initializes wheel for sync run the wheels, while 
+     *  distance measured from sonar sensor is over the dist_d (cm). It
+     *  is called from CustomMobileRobot::driveWhile_FixedDistPID method!
+     */
+
+    _fixed_dist_threshold_cm = dist_d;
+
+    double input_pid, output_pid, setpoint_pid;
+    double dist_d_double, current_dist_double;                               // to be passed in PID
+
+    dist_d_double = (double) dist_d / 100.00f;          // [m]
+
+    // Checks if kill switch is HIGH->ABORTS
+    if (*KILL_MOTION_TRIGGERED)
+    {
+        KILL_MOTION = true;
+        MOTION_FINISHED = true;
+        *debug_error = KILL_TRIGGER_PRESSED;
+    }
+    else if (_MOTION_STATE == is_moving)
+    {
+        KILL_MOTION  = true;
+        MOTION_FINISHED = true;
+        *debug_error = MOTOR_IS_MOVING_AT_STARTUP;    
+    }
+    else
+    {
+        KILL_MOTION = false;
+        MOTION_FINISHED = false;
+        *debug_error = NO_ERROR;    
+    }
+
+    if ( !KILL_MOTION  && (!MOTION_FINISHED))
+    {
+        // take single initial measurement, if measurement is crazy, set 1.0meter
+        _current_dist_cm = ptr2ping->ping_cm();
+        current_dist_double = (double) _current_dist_cm / 100.00f;          // [m]
+        if (current_dist_double > 1.0)
+        {
+            current_dist_double = 1.0;
+        }
+        
+
+        // set desired rotation direction
+        _DIR = DIR;
+
+        // start pid
+        input_pid    = current_dist_double;
+        setpoint_pid = dist_d_double;
+
+        // start pid controller, if initial speed<200 initial=200
+        PID_v2::Start(input_pid, 75.00, setpoint_pid); 
+        _output_speed_pid = PID_v2::Run(input_pid);
+        if (_output_speed_pid < WHEEEL_SPEED_MAX)
+        {
+            _output_speed_pid = WHEEEL_SPEED_MAX;
+        }
+
+        // set new state
+        this->_MOTION_STATE = ready;
+    }
+    else
+    {
+        // set new state
+        this->_MOTION_STATE = failed;
+    }
+    
+}
+// =========================================================================================================== //
+
 void MecanumEncoderWheel::start_PID( debug_error_type * debug_error)
 {
     if ( _MOTION_STATE == ready)
@@ -399,6 +493,76 @@ void MecanumEncoderWheel::update_FixedRevsPID( volatile bool *KILL_MOTION_TRIGGE
             if (this->pulses_remain <= 0)
             {
                 Serial.println("Mphka FINISHED");
+                // finished!
+                this->MOTION_FINISHED = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error =  NO_ERROR;
+                
+                * current_wheel_state = success;
+            }
+
+            this->_lastUpdate = millis();
+        }
+    }
+    else
+    {
+        Serial.println("_MOTION_STATE == is not moving");
+
+        *debug_error = STATE_WHEEL_NOT_MOVING;
+
+        this->_MOTION_STATE = failed;   
+
+        * current_wheel_state = failed; 
+    }
+    
+}
+
+// =========================================================================================================== //
+
+void MecanumEncoderWheel::update_FixedDistPID(unsigned long * current_dist_measured, volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error)
+{
+    double current_dist_double;
+
+    // check if state is right
+    if ( this->_MOTION_STATE == is_moving)
+    { 
+        *current_wheel_state = is_moving;
+
+        Serial.println("_MOTION_STATE == is_moving");
+
+        // check if it is time to update
+        if( (millis() - _lastUpdate) > _updateInterval )
+        {
+            // READ SONAR FUNCTION IS CALLED BEFORE THIS!
+            current_dist_double = (double) *current_dist_measured / 100.00f;
+
+            this->_output_speed_pid = PID_v2::Run(current_dist_double);
+            
+            Serial.print("PID new speed ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->_output_speed_pid);
+
+            L298N::setSpeed(this->_output_speed_pid);
+
+            MecanumEncoderWheel::rotateWheel(debug_error);
+
+            if (*KILL_MOTION_TRIGGERED)
+            {
+                Serial.println("Mphka KILL_MOTION_TRIGGERED");
+                // bad thing happened
+                this->KILL_MOTION = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error = KILL_TRIGGER_PRESSED;
+                
+                * current_wheel_state = failed;
+            }
+
+            // stopping criteria: 1.global safety dist 2. desired user dist
+            if ( (*current_dist_measured < FIXED_DIST_THRESHOLD_CM) || (*current_dist_measured < _fixed_dist_threshold_cm) )
+            {
+                Serial.println("FINISHED");
                 // finished!
                 this->MOTION_FINISHED = true;
                 L298N::stop();
@@ -592,6 +756,84 @@ void MecanumEncoderWheel::update_HeadingPID(MecanumMobileRobot::CustomMobileRobo
 }
 
 // =========================================================================================================== //
+
+void MecanumEncoderWheel::update_HeadingPID2( float * current_yaw_measured, volatile bool *KILL_MOTION_TRIGGERED, wheel_motion_states * current_wheel_state , debug_error_type * debug_error)
+{
+    float delta_angle,current_yaw;
+
+    // check if state is right
+    if ( this->_MOTION_STATE == is_moving)
+    { 
+        *current_wheel_state = is_moving;
+
+        //Serial.println("_MOTION_STATE == is_moving");
+
+        // check if it is time to update
+        if( (millis() - _lastUpdate) > _updateInterval )
+        {
+            current_yaw = *current_yaw_measured;
+
+            Serial.print("CURRENT YAW ANGLE ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(current_yaw);
+            //Serial.print("DESIRED YAW ANGLE ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(_desired_heading_angle);
+
+            // calculate delta yaw
+            //delta_angle = abs(_desired_heading_angle) - abs(current_yaw);
+            delta_angle = _desired_heading_angle - current_yaw;
+            Serial.print("delta_angle ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(delta_angle);
+
+            this->_output_speed_pid = PID_v2::Run(current_yaw);
+            
+            Serial.print("PID new speed ["); Serial.print(_MotorID); Serial.print("] = "); Serial.println(this->_output_speed_pid);
+
+            L298N::setSpeed(this->_output_speed_pid);
+
+            MecanumEncoderWheel::rotateWheel(debug_error);
+
+            if (*KILL_MOTION_TRIGGERED)
+            {
+                Serial.println("Mphka KILL_MOTION_TRIGGERED");
+                // bad thing happened
+                this->KILL_MOTION = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error = KILL_TRIGGER_PRESSED;
+                
+                * current_wheel_state = failed;
+            }
+
+            if (delta_angle <= 0)
+            {
+                Serial.println("Mphka FINISHED");
+                // finished!
+                this->MOTION_FINISHED = true;
+                L298N::stop();
+                this->_MOTION_STATE = stopped;
+
+                * debug_error =  NO_ERROR;
+                
+                * current_wheel_state = success;
+            }
+
+            this->_lastUpdate = millis();
+
+            //*last_yaw = current_yaw;
+        }
+    }
+    else
+    {
+        Serial.println("_MOTION_STATE == is not moving");
+
+        *debug_error = STATE_WHEEL_NOT_MOVING;
+
+        this->_MOTION_STATE = failed;   
+
+        * current_wheel_state = failed; 
+    }
+    
+}
+
+// =========================================================================================================== //
 /*
  *                              P R I V A T E -- C L A S S -- F U N C T I O N S
  */
@@ -657,6 +899,16 @@ CustomMobileRobot::CustomMobileRobot()
     _normGyro.XAxis = 0;
     _normGyro.YAxis = 0;
     _normGyro.ZAxis = 0;
+
+    // Sonar privates
+    _updateSonarInterval = SONAR_MIN_PING_INTERVAL;
+    _lastSonarUpdate = 0;
+
+    // Set proximity sensors pins
+    pinMode(PR0X_LIM_LEFT,INPUT_PULLUP);    // digitalRead(PROX_PIN) == HIGH => FREE+_PROXIMITY_TRIGGERED=false!
+    pinMode(PR0X_LIM_RIGHT,INPUT_PULLUP);   // digitalRead(PROX_PIN) == LOW  => OBSTACLE+_PROXIMITY_TRIGGERED=true!
+
+    _PROXIMITY_TRIGGERED = false;   
 };
 
 void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_rot_dir * WHEEL_DIRS, debug_error_type * debug_error)
@@ -799,11 +1051,12 @@ void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_ro
 
 // =========================================================================================================== //
 
-bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, double * WHEEL_REVS, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+void CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, double * WHEEL_REVS, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
 {
     // this drives the robot for specified number of revs and specified wheel directions
+    // this function can be used to implement ANY DESIRED ROBOT DIR!
 
-    RobotWheel = ptr2RobotWheel;    // this is a pointer to an array of wheel objects
+    //RobotWheel = ptr2RobotWheel;    // this is a pointer to an array of wheel objects
 
     _TERMINATE_MOTION = false;
 
@@ -849,7 +1102,68 @@ bool CustomMobileRobot::driveFor_FixedRevsPID(MobileWheel::MecanumEncoderWheel *
         }
     }while(!_TERMINATE_MOTION);
 
-    return true;
+}
+
+// =========================================================================================================== //
+
+void CustomMobileRobot::driveUntil_FixedDistPID(NewPing * ptr2ping, unsigned long * DESIRED_DIST_CM, MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    // This method moves the robot until the desired dist from goal is reached.
+    // For extra robustness the proximity switches must be checked! [added on 3-3-21]
+    // PID DC motor speed control is implemented!
+    // PID DC motor speed control is implemented!
+
+    unsigned long dist_measured_here;
+
+    _TERMINATE_MOTION = false;
+
+    // initialize
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->initialize_FixedDistPID(ptr2ping, *DESIRED_DIST_CM, WHEEL_DIRS[i], KILL_MOTION_TRIGGERED, debug_error );
+    }
+    // start
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->start_PID( debug_error );
+    }
+    // update robot subsystems
+    do
+    {
+        // update sonar
+        dist_measured_here = updateSonar(ptr2ping, debug_error);
+
+        // update the dc motor speed based on sonar reading
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            (ptr2RobotWheel+i)->update_FixedDistPID(&dist_measured_here, KILL_MOTION_TRIGGERED, (WHEEL_STATES+i),debug_error );
+        }
+
+        // inside state machine loop always check the current 
+        // state of motors returned from update_FixedDistPID!
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            if (WHEEL_STATES[i] == MobileWheel::wheel_motion_states::is_moving)
+            {
+                _MOTOR_STILL_MOVING = true;
+                break;
+            }
+            else
+            {
+                _MOTOR_STILL_MOVING = false;    
+            } 
+        }
+
+        Serial.print("_MOTOR_STILL_MOVING = "); Serial.println(_MOTOR_STILL_MOVING);
+
+        // if not even 1 motor turning terminate the state-machine loop
+        if( (!_MOTOR_STILL_MOVING) ) 
+        {
+            _TERMINATE_MOTION = true;
+        }
+
+    }while(!_TERMINATE_MOTION);
+
 }
 
 // =========================================================================================================== //
@@ -927,6 +1241,169 @@ bool CustomMobileRobot::rotateFor_FixedYawPID(CustomMobileRobot * ptr2RobotObjec
 
 // =========================================================================================================== //
 
+bool CustomMobileRobot::rotateFor_FixedYawPID2(sensors::imu9dof * ptr2IMU, sensors::imu_packet * ptr2imu_packet,  sensors::imu_filter FILTER_SELECT, MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, float  desired_heading_angle, MobileWheel::wheel_rot_dir * WHEEL_DIRS, MobileWheel::wheel_motion_states * WHEEL_STATES, volatile bool *KILL_MOTION_TRIGGERED, debug_error_type * debug_error)
+{
+    // this rotates the robot for the desired yaw angle
+
+    float yaw_measured_here;
+
+    RobotWheel = ptr2RobotWheel;    // this is a pointer to an array of wheel objects
+
+    _TERMINATE_MOTION = false;
+
+    // initialize
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->initialize_HeadingPID(desired_heading_angle, WHEEL_DIRS[i], KILL_MOTION_TRIGGERED, debug_error);
+    }
+    // start
+    for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+    {
+        (ptr2RobotWheel+i)->start_PID( debug_error );
+    }
+
+    do
+    {
+        // update the objects state
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            //_heading_angle = updateHeadingAngle(ptr2mpu);
+            updateHeadingAngle2(ptr2IMU, ptr2imu_packet, FILTER_SELECT,debug_error);
+            yaw_measured_here = ptr2imu_packet->yaw_c;
+            (ptr2RobotWheel+i)->update_HeadingPID2(&yaw_measured_here, KILL_MOTION_TRIGGERED, (WHEEL_STATES+i),debug_error );
+        }
+
+        // inside state machine loop always check the current state of motors
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            if (WHEEL_STATES[i] == MobileWheel::wheel_motion_states::is_moving)
+            {
+                _MOTOR_STILL_MOVING = true;
+                break;
+            }
+            else
+            {
+                _MOTOR_STILL_MOVING = false;
+            } 
+        }
+
+        Serial.print("_MOTOR_STILL_MOVING = "); Serial.println(_MOTOR_STILL_MOVING);
+
+        // if not even 1 motor turning terminate the state-machine loop
+        if( (!_MOTOR_STILL_MOVING) ) 
+        {
+            _TERMINATE_MOTION = true;
+        }
+
+    }while(!_TERMINATE_MOTION);
+
+    return true;
+}
+
+// =========================================================================================================== //
+
+void CustomMobileRobot::rotateUntil_ProxTrig(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, MobileWheel::wheel_rot_dir * WHEEL_DIRS, prox_sensor_select proximity_switch_selected, debug_error_type * debug_error)
+{
+    // this rotates the robot until specified proximity sensor is triggered!
+    // No PID motor control! WHEEL SPEED CT @ WHEEEL_SPEED_ROBOT_ROT.
+    // timeout is used to avoid infinite loop in case proximity is dead
+    
+    int pin2read;
+    unsigned long started_rotating;
+    int rotation_duraton;
+
+    // Method is executed only if no error is previously found! Else does nothing and returns the given debug value!
+    if (*debug_error == NO_ERROR)
+    {  
+        _TERMINATE_MOTION = false;
+        _PROXIMITY_TRIGGERED = false;
+
+        switch (proximity_switch_selected)
+        {
+            case PROX_LEFT:
+                pin2read = PR0X_LIM_LEFT;
+                break;
+            case PROX_RIGHT:
+                pin2read = PR0X_LIM_RIGHT;
+                break;    
+            default:
+                *debug_error = WRONG_PROX_SELECT;
+                break;
+        }
+
+        // start the motors with constant speed
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            ptr2RobotWheel->runUntil_ctSpeed(WHEEL_DIRS[i], debug_error);
+        }
+
+        started_rotating = millis();
+        do
+        {
+            // here check proximity
+            if (digitalRead(pin2read) == LOW)
+            {
+                _PROXIMITY_TRIGGERED = true;
+                *debug_error = NO_ERROR;
+            }
+
+            // here real-time updates can be inserted if desired!
+
+            // stopping criterion
+            if (_PROXIMITY_TRIGGERED == true)
+            {
+                _TERMINATE_MOTION = true;
+            }
+
+            rotation_duraton = millis() - started_rotating;
+        // rotates while both criteria are true
+        }while( (!_TERMINATE_MOTION) && (rotation_duraton < ROTATION_TIMEOUT) );
+
+        if (rotation_duraton > ROTATION_TIMEOUT)
+        {
+            *debug_error = MOTION_EXCEEDED_TIMEOUT;
+        }
+    }
+
+}
+
+// =========================================================================================================== //
+//  N E S T -- E V E N T S -- M E T H O D S
+// =========================================================================================================== //
+void CustomMobileRobot::attachNestLeft(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, debug_error_type * debug_error)
+{
+    // Is executed after driveUntil_FixedDistPID. If this is success, the robot is just 
+    // few cm far from nest and must initialize nest alignment!
+    // TO DO: draw the sketch and save the graphical explanation of routine in jpg folder! [added 3-3-21]
+
+    robot_dir routine_robot_dir;                        // the robot dir of each routine executed
+    wheel_rot_dir returned_wheel_dir[num_ROBOT_WHEELS];  // here calculated wheel dirs will be saved, w.r.t robot dir of the routine
+    prox_sensor_select routine_prox_sensor;
+    
+    // check state=> must be ready!
+
+    // Routine 1 -> Executes ROBOT_DIR = CORNER_BACK_RIGHT UNTIL PROX LEFT IS TRIGGERED!
+    routine_prox_sensor = PROX_LEFT;
+    routine_robot_dir = CORNER_BACK_RIGHT;
+    setRobotDir(routine_robot_dir, returned_wheel_dir, debug_error);
+    rotateUntil_ProxTrig(ptr2RobotWheel, returned_wheel_dir, routine_prox_sensor, debug_error);
+    
+    // Routine 2 -> Executed ROBOT_DIR = CORNER_FRONT_LEFT UNTIL PROX RIGHT IS TRIGGERED!
+    routine_prox_sensor = PROX_RIGHT;
+    routine_robot_dir = CORNER_FRONT_LEFT;
+    setRobotDir(routine_robot_dir, returned_wheel_dir, debug_error);
+    rotateUntil_ProxTrig(ptr2RobotWheel, returned_wheel_dir, routine_prox_sensor, debug_error);
+
+    // Routine 3 -> checks if both PROX SENSORS ARE TRIGGERED => returns true (and sets yaw angle to zero? TO BE DECIDED)
+    //                                                        => returns false : after experiments will decide its fate
+    // complicated... must evaluate hardware tests results! [added on 3-3-21]
+    return;
+}
+
+// =========================================================================================================== //
+//  S E N S O R -- U P D A T E -- M E T H O D S
+// =========================================================================================================== //
+
 float CustomMobileRobot::updateHeadingAngle(MPU6050 * ptr2mpu)
 {
     float current_heading_angle,var_time_step;
@@ -952,11 +1429,55 @@ float CustomMobileRobot::updateHeadingAngle(MPU6050 * ptr2mpu)
     return current_heading_angle;
 }
 
-// =========================================================================================================== //
-/*
- *                              P R I V A T E -- C L A S S -- F U N C T I O N S
- */
-// =========================================================================================================== //
+void CustomMobileRobot::updateHeadingAngle2(sensors::imu9dof * ptr2IMU, sensors::imu_packet * ptr2imu_packet, sensors::imu_filter FILTER_SELECT, debug_error_type * imu_error)
+{
+    int update_IMU_interval;
+    bool fn_state;
+
+    ptr2IMU->getFilterInterval(&update_IMU_interval);
+
+    if (millis() - _lastIMUupdate > update_IMU_interval)
+    {
+      fn_state = ptr2IMU->measure_with_filter_IMU(ptr2imu_packet, FILTER_SELECT, imu_error);
+
+      _lastIMUupdate = millis();
+
+      if (fn_state)
+      {
+        Serial.println("MEASURED IMU");
+        //Serial.print("ROLL  = "); Serial.println(ptr2imu_packet->roll_c);
+        //Serial.print("PITCH = "); Serial.println(ptr2imu_packet->pitch_c);
+        //Serial.print("YAW   = "); Serial.println(ptr2imu_packet->yaw_c);
+      }
+      else
+      {
+        Serial.println("NOT MEASURED IMU"); Serial.print("IMU ERROR = "); Serial.println(*imu_error);
+      }
+    }   
+}
+
+unsigned long CustomMobileRobot::updateSonar(NewPing * ptr2ping, debug_error_type * imu_error)
+{
+
+    unsigned long dist_current_cm;
+
+    if (millis() - _lastSonarUpdate > _updateSonarInterval)
+    {
+        _dist_current_measured_cm = ptr2ping->ping_cm();    
+
+        _lastSonarUpdate = millis();
+
+        Serial.println("PINGED SONAR");
+
+        dist_current_cm = _dist_current_measured_cm;
+    }
+    else
+    {
+        dist_current_cm = _dist_current_measured_cm;
+    }   
+
+    return dist_current_cm;
+}
 
 void CustomMobileRobot::initializeMPU(MPU6050 * ptr2mpu, debug_error_type * debug_error)
 {
@@ -975,3 +1496,9 @@ void CustomMobileRobot::initializeMPU(MPU6050 * ptr2mpu, debug_error_type * debu
 
     *debug_error = NO_ERROR;
 }
+
+// =========================================================================================================== //
+/*
+ *                              P R I V A T E -- C L A S S -- F U N C T I O N S
+ */
+// =========================================================================================================== //
