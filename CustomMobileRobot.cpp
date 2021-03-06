@@ -880,7 +880,12 @@ void MecanumEncoderWheel::setMotionState(wheel_motion_states * new_wheel_state)
 {
     this->_MOTION_STATE = * new_wheel_state;
 }
+// =========================================================================================================== //
 
+void MecanumEncoderWheel::resetWheelDir(MobileWheel::wheel_rot_dir prev_wheel_dir)
+{
+    this->_DIR = prev_wheel_dir;
+}
 
 // =========================================================================================================== //
 // NEW CLASS FOR ROBOT SYSTEM -> IMPLEMENTS STATE MACHINE FOR SYNC MOTION - S I M P L E
@@ -907,8 +912,16 @@ CustomMobileRobot::CustomMobileRobot()
     // Set proximity sensors pins
     pinMode(PR0X_LIM_LEFT,INPUT_PULLUP);    // digitalRead(PROX_PIN) == HIGH => FREE+_PROXIMITY_TRIGGERED=false!
     pinMode(PR0X_LIM_RIGHT,INPUT_PULLUP);   // digitalRead(PROX_PIN) == LOW  => OBSTACLE+_PROXIMITY_TRIGGERED=true!
+    // Set laser trigger pins
+    pinMode(LASER_1,INPUT);
+    pinMode(LASER_2,INPUT);
+    pinMode(LASER_3,INPUT);
+    pinMode(LASER_4,INPUT);
 
-    _PROXIMITY_TRIGGERED = false;   
+    _PROXIMITY_TRIGGERED    = false;
+    _LASER_TRIGGERED        = false;
+    _KILL_ROBOT_MOTION      = false;
+
 };
 
 void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_rot_dir * WHEEL_DIRS, debug_error_type * debug_error)
@@ -917,135 +930,135 @@ void CustomMobileRobot::setRobotDir(robot_dir DESIRED_DIR, MobileWheel::wheel_ro
 
     switch (DESIRED_DIR)
     {
-    case BWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;
-    case FWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;
-    case DIAG_LEFT_FWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;
-    case DIAG_RIGHT_FWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;
-    case DIAG_LEFT_BWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;
-    case DIAG_RIGHT_BWD:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;
-    case LEFT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;
-    case RIGHT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_CENTER_CW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_CENTER_CCW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_FRONT_CW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_FRONT_CCW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_BACK_CW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;
-    case ROT_BACK_CCW:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;      
-    case CORNER_BACK_RIGHT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;  
-    case CORNER_BACK_LEFT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
-        *debug_error = NO_ERROR;
-        break;  
-    case CORNER_FRONT_RIGHT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
-        *debug_error = NO_ERROR;
-        break;  
-    case CORNER_FRONT_LEFT:
-        WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
-        WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
-        //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
-        //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
-        *debug_error = NO_ERROR;
-        break;       
-    default:
-        *debug_error = WRONG_DIR_GIVEN;
-        break;
+        case BWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;
+        case FWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;
+        case DIAG_LEFT_FWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;
+        case DIAG_RIGHT_FWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;
+        case DIAG_LEFT_BWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;
+        case DIAG_RIGHT_BWD:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;
+        case LEFT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;
+        case RIGHT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_CENTER_CW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_CENTER_CCW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_FRONT_CW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_FRONT_CCW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_BACK_CW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;
+        case ROT_BACK_CCW:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;      
+        case CORNER_BACK_RIGHT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::cw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;  
+        case CORNER_BACK_LEFT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::cw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::cw;
+            *debug_error = NO_ERROR;
+            break;  
+        case CORNER_FRONT_RIGHT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::ccw;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::stall;
+            *debug_error = NO_ERROR;
+            break;  
+        case CORNER_FRONT_LEFT:
+            WHEEL_DIRS[0] = MobileWheel::wheel_rot_dir::stall;
+            WHEEL_DIRS[1] = MobileWheel::wheel_rot_dir::ccw;
+            //WHEEL_DIRS[2] = MobileWheel::wheel_rot_dir::stall;
+            //WHEEL_DIRS[3] = MobileWheel::wheel_rot_dir::ccw;
+            *debug_error = NO_ERROR;
+            break;       
+        default:
+            *debug_error = WRONG_DIR_GIVEN;
+            break;
     }
 }
 
@@ -1111,8 +1124,9 @@ void CustomMobileRobot::driveUntil_FixedDistPID(NewPing * ptr2ping, unsigned lon
     // This method moves the robot until the desired dist from goal is reached.
     // For extra robustness the proximity switches must be checked! [added on 3-3-21]
     // PID DC motor speed control is implemented!
-    // PID DC motor speed control is implemented!
+    // Auto alignment using laser sensors was added [6-3-21]
 
+    laser_sensor_select line_limit_responded = NO_LASER;    // is used inside loop checks for auto-align direction
     unsigned long dist_measured_here;
 
     _TERMINATE_MOTION = false;
@@ -1130,6 +1144,12 @@ void CustomMobileRobot::driveUntil_FixedDistPID(NewPing * ptr2ping, unsigned lon
     // update robot subsystems
     do
     {
+        // check if limit laser was activated
+        updateLaserTriggers(line_limit_responded, debug_error);
+
+        // if laser line limit sensor responds executes auto-alignment
+        autoAlign(ptr2RobotWheel, WHEEL_DIRS, line_limit_responded, debug_error);
+
         // update sonar
         dist_measured_here = updateSonar(ptr2ping, debug_error);
 
@@ -1163,6 +1183,74 @@ void CustomMobileRobot::driveUntil_FixedDistPID(NewPing * ptr2ping, unsigned lon
         }
 
     }while(!_TERMINATE_MOTION);
+
+}
+
+// =========================================================================================================== //
+
+void CustomMobileRobot::driveUntil_LaserTrig(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, MobileWheel::wheel_rot_dir * WHEEL_DIRS, laser_sensor_select laser_switch_selected, debug_error_type * debug_error)
+{
+    // this moves the robot until specified laser sensor is triggered!
+    // Rotational and translational commands can be given! Motors will
+    // max run for timeout time. No PID motor control! WHEEL SPEED CT 
+    // @ WHEEEL_SPEED_ROBOT_ROT.
+    
+    int pin2read;
+    unsigned long started_rotating;
+    int rotation_duraton;
+
+    // Method is executed only if no error is previously found! Else does nothing and returns the given debug value!
+    if (*debug_error == NO_ERROR)
+    {  
+        _TERMINATE_MOTION = false;
+        _LASER_TRIGGERED = false;
+
+        switch (laser_switch_selected)
+        {
+            case LASER_FRONT:
+                pin2read = LASER_1;
+                break;
+            case LASER_BACK:
+                pin2read = LASER_2;
+                break;      
+            default:
+                *debug_error = WRONG_LASER_SELECT;
+                break;
+        }
+
+        // start the motors with constant speed
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            ptr2RobotWheel->runUntil_ctSpeed(WHEEL_DIRS[i], debug_error);
+        }
+
+        started_rotating = millis();
+        do
+        {
+            // here check proximity
+            if (digitalRead(pin2read) == HIGH)
+            {
+                _LASER_TRIGGERED = true;
+                *debug_error = NO_ERROR;
+            }
+
+            // here real-time updates can be inserted if desired!
+
+            // stopping criterion
+            if (_LASER_TRIGGERED == true)
+            {
+                _TERMINATE_MOTION = true;
+            }
+
+            rotation_duraton = millis() - started_rotating;
+        // rotates while both criteria are true
+        }while( (!_TERMINATE_MOTION) && (rotation_duraton < ROTATION_TIMEOUT) );
+
+        if (rotation_duraton > ROTATION_TIMEOUT)
+        {
+            *debug_error = MOTION_EXCEEDED_TIMEOUT;
+        }
+    }
 
 }
 
@@ -1368,8 +1456,88 @@ void CustomMobileRobot::rotateUntil_ProxTrig(MobileWheel::MecanumEncoderWheel * 
 }
 
 // =========================================================================================================== //
+
+void CustomMobileRobot::autoAlign(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, MobileWheel::wheel_rot_dir * WHEEL_DIRS, laser_sensor_select &laser_sensor_trig, debug_error_type * debug_error)
+{
+    // is called inside driveUntil. performs line(center black line) alignment 
+    // of robot chassis if a laser sensor has responded. Blocks main drive loop
+    // until alignment is performed!
+    
+    MobileWheel::wheel_rot_dir  previous_wheel_dirs[num_ROBOT_WHEELS];
+
+    if (laser_sensor_trig == NO_LASER)  // NO NEED TO DO ANYTHING
+    {
+        return;
+    }
+    else    // WILL PERFORM ALIGNMENT AND THEN BREAK FREE!
+    {
+        auto_align_routine routine2execute;
+        robot_dir routine_robot_dir;                         // the robot dir of each routine executed
+        wheel_rot_dir routine_wheel_dirs[num_ROBOT_WHEELS];  // here calculated wheel dirs will be saved, w.r.t robot dir of the routine
+        laser_sensor_select routine_laser_sensor;
+
+        // FIRST SAVE PREVIOUS WHEEL DIRS
+        for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+        {
+            previous_wheel_dirs[i] = WHEEL_DIRS[i];
+        }
+        
+        // SWITCH MODE W.R.T LASER SENSOR TRIGGERED
+        switch (laser_sensor_trig)
+        {
+            case LASER_LEFT:
+                routine2execute = ALIGN_LEFT;
+                break;
+            case LASER_RIGHT:
+                routine2execute = ALIGN_RIGHT;
+                break;            
+            default:
+                routine2execute = ALIGN_ROUT_ERROR;
+                break;
+        }
+
+        // EXECUTE ROUTINES
+        switch (routine2execute)
+        {
+            case ALIGN_LEFT:
+                // align routine 1: FWD DIAG RIGHT UNTIL LASER_FRONT
+                //            ROT_FRONT CW UNTIL LASER_BACK
+                routine_laser_sensor = LASER_FRONT;
+                routine_robot_dir = DIAG_RIGHT_FWD;
+                setRobotDir(routine_robot_dir, routine_wheel_dirs, debug_error);
+                driveUntil_LaserTrig(ptr2RobotWheel, routine_wheel_dirs, routine_laser_sensor, debug_error);
+                break;
+            case ALIGN_RIGHT:
+                // align routine 2: FWD DIAG LEFT UNTIL LASER_BACK
+                //                  ROT_BACK CCW UNTIL LASER_FRONT
+                routine_laser_sensor = LASER_BACK;
+                routine_robot_dir = DIAG_LEFT_FWD;
+                setRobotDir(routine_robot_dir, routine_wheel_dirs, debug_error);
+                driveUntil_LaserTrig(ptr2RobotWheel, routine_wheel_dirs, routine_laser_sensor, debug_error);
+                break;            
+            default:
+                debug_error = WRONG_LASER_SELECT;
+                break;
+        }
+
+        // FINALLY IF NO ERROR RETURN WHEELS TO INITIAL DIR
+        if (*debug_error == NO_ERROR)
+        {
+            for (size_t i = 0; i < num_ROBOT_WHEELS; i++)
+            {
+                ptr2RobotWheel->resetWheelDir(previous_wheel_dirs[i]);
+            }
+        }
+        
+    }
+    
+    return;
+}
+
+// =========================================================================================================== //
 //  N E S T -- E V E N T S -- M E T H O D S
 // =========================================================================================================== //
+
 void CustomMobileRobot::attachNestLeft(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel, debug_error_type * debug_error)
 {
     // Is executed after driveUntil_FixedDistPID. If this is success, the robot is just 
@@ -1398,6 +1566,26 @@ void CustomMobileRobot::attachNestLeft(MobileWheel::MecanumEncoderWheel * ptr2Ro
     //                                                        => returns false : after experiments will decide its fate
     // complicated... must evaluate hardware tests results! [added on 3-3-21]
     return;
+}
+
+void CustomMobileRobot::detachNest(MobileWheel::MecanumEncoderWheel * ptr2RobotWheel,  debug_error_type * debug_error)
+{
+    // executed after grasp
+
+    // 1. robot goes 1 rev BWD
+    double detach_revs = 1.0;
+    MecanumMobileRobot::robot_dir routine_robot_dir = BWD;
+    MobileWheel::wheel_rot_dir routine_wheel_dirs[num_ROBOT_WHEELS];
+    MobileWheel::wheel_motion_states detach_wheel_states[num_ROBOT_WHEELS];
+    setRobotDir(routine_robot_dir, routine_wheel_dirs, debug_error);
+    driveFor_FixedRevsPID(ptr2RobotWheel, &detach_revs, routine_wheel_dirs, detach_wheel_states, &_KILL_ROBOT_MOTION,debug_error);       
+
+    // 2. rotates CW 180deg(until h1 is triggered)
+    MecanumMobileRobot::laser_sensor_select routine_laser_sensor = LASER_FRONT;
+    routine_robot_dir = ROT_CENTER_CW;
+    setRobotDir(routine_robot_dir, routine_wheel_dirs, debug_error);
+    driveUntil_LaserTrig(ptr2RobotWheel, routine_wheel_dirs, routine_laser_sensor, debug_error);
+
 }
 
 // =========================================================================================================== //
@@ -1479,6 +1667,31 @@ unsigned long CustomMobileRobot::updateSonar(NewPing * ptr2ping, debug_error_typ
     return dist_current_cm;
 }
 
+void CustomMobileRobot::updateLaserTriggers(laser_sensor_select &laser_sensor_trig, debug_error_type * debug_error)
+{
+    if (millis() - _lastLaserTriggersUpdate > _updateLaserTriggersInterval)
+    {
+        if (digitalRead(LASER_3) == HIGH)   // LASER_LEFT 
+        {
+            laser_sensor_trig = LASER_LEFT;
+        }
+        else if (digitalRead(LASER_4) == HIGH)      // LASER_RIGHT was triggered
+        {
+            laser_sensor_trig = LASER_RIGHT;
+        }
+        else
+        {
+            laser_sensor_trig = NO_LASER;
+        }
+
+        _lastLaserTriggersUpdate = millis();
+    }
+}
+
+// =========================================================================================================== //
+//  S E N S O R -- I N I T I A L I Z E -- M E T H O D S
+// =========================================================================================================== //
+
 void CustomMobileRobot::initializeMPU(MPU6050 * ptr2mpu, debug_error_type * debug_error)
 {
     //mpu_sensor = & ptr2mpu;
@@ -1502,3 +1715,4 @@ void CustomMobileRobot::initializeMPU(MPU6050 * ptr2mpu, debug_error_type * debu
  *                              P R I V A T E -- C L A S S -- F U N C T I O N S
  */
 // =========================================================================================================== //
+

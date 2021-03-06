@@ -35,6 +35,11 @@
 // PROXIMITY
 #define PR0X_LIM_LEFT   A0
 #define PR0X_LIM_RIGHT  A1
+// LASER TRIGGER
+#define LASER_1         37
+#define LASER_2         38
+#define LASER_3         39
+#define LASER_4         40
 // SUPERSONIC
 #define SONAR_ECHO      53
 #define SONAR_TRIG      52
